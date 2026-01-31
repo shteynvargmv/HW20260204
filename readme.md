@@ -103,7 +103,6 @@ public User register(User user) {
     if (userRepository.findByUsername(user.getUsername()).isPresent()) {
         throw new RuntimeException("User already exists");
     }
-    System.out.println("ok");
 
     user.setPassword(passwordEncoder.encode(user.getPassword()));
 

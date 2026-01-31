@@ -42,11 +42,9 @@ public class UserService implements UserDetailsService {
     }
 
     public User register(User user) {
-        System.out.println("ok");
         if (userRepository.findByUsername(user.getUsername()).isPresent()) {
             throw new RuntimeException("User already exists");
         }
-        System.out.println("ok");
 
         user.setPassword(passwordEncoder.encode(user.getPassword()));
 
