@@ -7,10 +7,10 @@
 Проект реализует REST API с защищенными эндпоинтами. Доступ к ресурсам регулируется на основе ролей пользователей (`USER`, `ADMIN`). Вместо сессий используется Stateless архитектура с JWT токенами.
 
 ### Основные возможности:
-*   Вход в систему (Login) и получение JWT токена.
+*   Вход в систему (Register, Login (c полученим JWT токена), Logout).
 *   Валидация токена при каждом запросе.
 *   Разграничение доступа к эндпоинтам по ролям.
-*   Хранение пользователей в памяти (In-Memory).
+*   Хранение пользователей в БД.
 
 ## 🚀 Запуск проекта
 
@@ -25,7 +25,7 @@
     ./mvnw spring-boot:run
     ```
     (Для Windows: `mvnw.cmd spring-boot:run`)
-3.  Приложение запустится на порту `8080`.
+3.  Приложение запустится на порту `8088`.
 
 ---
 
@@ -33,10 +33,26 @@
 
 Для тестирования API можно использовать Postman, cURL или любой другой HTTP клиент.
 
-### 1. Аутентификация (Получение токена)
+### 2. Регистрация пользователя
+Отправьте POST запрос.
+
+*   **URL:** `http://localhost:8088/auth/register`
+*   **Method:** `POST`
+*   **Body (JSON):**
+    ```json
+    {
+        "username": "user1",
+        "password": "password",
+        "email" : "mail@mail.ru",
+        "role" : 0
+    }
+    ```
+    Роль: 0 для USER (по умолчанию), 1 для ADMIN
+
+### 2. Аутентификация (Получение токена)
 Отправьте POST запрос для получения токена.
 
-*   **URL:** `http://localhost:8080/auth/login`
+*   **URL:** `http://localhost:8088/auth/login`
 *   **Method:** `POST`
 *   **Body (JSON):**
     ```json
@@ -45,13 +61,10 @@
         "password": "password"
     }
     ```
-    *Доступные пользователи:*
-    *   `user1` / `password` (Роль: USER)
-    *   `user2` / `password` (Роль: ADMIN)
 
 *   **Ответ:** Строка с JWT токеном (например, `eyJhbGciOiJIUzI1NiJ9...`).
 
-### 2. Доступ к защищенным ресурсам
+### 3. Доступ к защищенным ресурсам
 Для доступа к любым другим эндпоинтам необходимо передавать полученный токен в заголовке `Authorization`.
 
 *   **Header:** `Authorization`
@@ -59,15 +72,22 @@
 
 ### Список эндпоинтов
 
-| Метод | URL | Необходимая роль | Описание |
-|-------|-----|------------------|----------|
-| `GET` | `/` | Любая (Authenticated) | Возвращает имя пользователя и его роли. |
-| `GET` | `/user` | `USER` или `ADMIN` | Доступно обычным пользователям и админам. |
-| `GET` | `/admin` | `ADMIN` | Доступно только администраторам. |
+| Метод  | URL                | Необходимая роль      | Описание                                  |
+|--------|--------------------|-----------------------|-------------------------------------------|
+| `GET`  | `/`                | Любая (Authenticated) | Возвращает имя пользователя и его роль.   |
+| `POST` | `/auth/register`   | Для всех              | Authentication не требуется               |
+| `POST` | `/auth/login`      | Для всех              | Authentication не требуется               |
+| `POST` | `/auth/logout`     | Любая (Authenticated) | Доступно обычным пользователям и админам. |
+| `GET`  | `/user/me`         | `USER` или `ADMIN`    | Доступно обычным пользователям и админам. |
+| `GET`  | `/user/dashboard`  | `USER` или `ADMIN`    | Доступно обычным пользователям и админам. |
+| `GET`  | `/user/profile`    | `USER` или `ADMIN`    | Доступно обычным пользователям и админам. |
+| `GET`  | `/admin/me`        | `ADMIN`               | Доступно только админам.                  |
+| `GET`  | `/admin/dashboard` | `ADMIN`               | Доступно только админам.                  |
+| `GET`  | `/admin/users`     | `ADMIN`               | Доступно только админам.                  |
 
 **Пример запроса cURL:**
 ```bash
-curl -H "Authorization: Bearer <ВАШ_ТОКЕН>" http://localhost:8080/admin
+curl -H "Authorization: Bearer <ВАШ_ТОКЕН>" http://localhost:8088/admin
 ```
 
 ---
@@ -75,18 +95,25 @@ curl -H "Authorization: Bearer <ВАШ_ТОКЕН>" http://localhost:8080/admin
 ## ⚙️ Настройка и Изменение кода
 
 ### 1. Добавление/Изменение пользователей
-Пользователи определяются в классе `ru.top.security.config.AuthConfig`.
-Найдите метод `userDetailsService()`:
+См. метод `userService()`:
 
 ```java
-@Bean
-public UserDetailsService userDetailsService() {
-    UserDetails newUser = User.withUsername("newuser")
-            .password(passwordEncoder().encode("12345"))
-            .roles("MANAGER") // Назначение роли
-            .build();
+public User register(User user) {
+    System.out.println("ok");
+    if (userRepository.findByUsername(user.getUsername()).isPresent()) {
+        throw new RuntimeException("User already exists");
+    }
+    System.out.println("ok");
 
-    return new InMemoryUserDetailsManager(user1, user2, newUser);
+    user.setPassword(passwordEncoder.encode(user.getPassword()));
+
+    if (user.getRole() == null) {
+        user.setRole(Role.USER);
+    }
+
+    System.out.println(user);
+
+    return userRepository.save(user);
 }
 ```
 
@@ -94,11 +121,13 @@ public UserDetailsService userDetailsService() {
 Правила доступа к URL настраиваются в `ru.top.security.config.SecurityConfig` в методе `securityFilterChain()`:
 
 ```java
-http.authorizeHttpRequests((authorize) -> authorize
-    .requestMatchers("/public/**").permitAll() // Доступ для всех
-    .requestMatchers("/admin").hasRole("ADMIN") // Только для роли ADMIN
-    .requestMatchers("/manager").hasAnyRole("MANAGER", "ADMIN") // Для MANAGER или ADMIN
-    .anyRequest().authenticated() // Все остальные требуют авторизации
+http.csrf(csrf -> csrf.disable())
+        .authorizeHttpRequests((authorize) -> authorize
+        .requestMatchers("/auth/login", "/auth/register").permitAll()
+        .requestMatchers("/admin/**").hasRole("ADMIN")
+        .requestMatchers("/user/**").hasAnyRole("USER", "ADMIN")
+        .requestMatchers("/auth/logout").authenticated()
+        .anyRequest().authenticated()
 )
 ```
 
